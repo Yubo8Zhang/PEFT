@@ -159,7 +159,7 @@ class PromptEncoder(torch.nn.Module):
                 raise ValueError("Prompt encoder type not recognized. Please use one of MLP (recommended) or LSTM.")
 
     def forward(self, indices):
-        input_embeds = self.embedding(indices)
+        input_embeds = self.embedding(indices)  # 这个self.embedding只是prompt_encoder自己的embedding，而且是static的！
         if self.encoder_type == PromptEncoderReparameterizationType.LSTM:
             output_embeds = self.mlp_head(self.lstm_head(input_embeds)[0])
         elif self.encoder_type == PromptEncoderReparameterizationType.MLP:
