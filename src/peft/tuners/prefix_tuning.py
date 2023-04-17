@@ -98,7 +98,7 @@ class PrefixEncoder(torch.nn.Module):
                 torch.nn.Linear(encoder_hidden_size, num_layers * 2 * token_dim),
             )
         else:
-            self.embedding = torch.nn.Embedding(num_virtual_tokens, num_layers * 2 * token_dim)
+            self.embedding = torch.nn.Embedding(num_virtual_tokens, num_layers * 2 * token_dim)   # 最主要参数是这两个，记住含义(num_embeddings,embedding_dim)
 
     def forward(self, prefix: torch.Tensor):
         if self.prefix_projection:

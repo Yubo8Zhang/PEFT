@@ -221,13 +221,13 @@ class PeftModel(PushToHubMixin, torch.nn.Module):
             if value.shape[0] == self.base_model.config.vocab_size:
                 self.word_embeddings = transformer_backbone.get_submodule(named_param.replace(".weight", ""))
                 break
-        # 下面初始化prompt_encoder。这个模型很简单，就一个embedding层加一个3层的mlp
+        # 下面初始化prompt_encoder。
         if self.peft_config.peft_type == PeftType.PROMPT_TUNING:
             prompt_encoder = PromptEmbedding(self.peft_config, self.word_embeddings)
         elif self.peft_config.peft_type == PeftType.P_TUNING:
-            prompt_encoder = PromptEncoder(self.peft_config)
+            prompt_encoder = PromptEncoder(self.peft_config)      # 这个模型很简单，就一个embedding层加一个3层的mlp
         elif self.peft_config.peft_type == PeftType.PREFIX_TUNING:
-            prompt_encoder = PrefixEncoder(self.peft_config)
+            prompt_encoder = PrefixEncoder(self.peft_config)      # 当prefix_projection参数为False时，仅有一个embedding模块
         else:
             raise ValueError("Not supported")
         self.prompt_encoder = prompt_encoder
@@ -256,8 +256,9 @@ class PeftModel(PushToHubMixin, torch.nn.Module):
             if self.peft_config.inference_mode:
                 past_key_values = self.prompt_encoder.embedding.weight.repeat(batch_size, 1, 1)
             else:
-                past_key_values = self.prompt_encoder(prompt_tokens)
-            past_key_values = past_key_values.view(
+                past_key_values = self.prompt_encoder(prompt_tokens)   # 这里就是过了一个static embedding层，形状为[bs,num_virtual_tokens, num_layers(12) * 2 * token_dim(768)]
+            # 下面将past_key_values按base_model中transformer块的数量和输入格式进行重新组织
+            past_key_values = past_key_values.view(   # 修改形状为[2,20,24,12,64]
                 batch_size,
                 self.peft_config.num_virtual_tokens,
                 self.peft_config.num_layers * 2,
@@ -266,7 +267,7 @@ class PeftModel(PushToHubMixin, torch.nn.Module):
             )
             if self.peft_config.num_transformer_submodules == 2:
                 past_key_values = torch.cat([past_key_values, past_key_values], dim=2)
-            past_key_values = past_key_values.permute([2, 0, 3, 1, 4]).split(
+            past_key_values = past_key_values.permute([2, 0, 3, 1, 4]).split(    # 这里默认是按照dim=0来切分，切出来是一个tuple，其中的每组tensor就对应transformer block中的每一层
                 self.peft_config.num_transformer_submodules * 2
             )
             if TRANSFORMERS_MODELS_TO_PREFIX_TUNING_POSTPROCESS_MAPPING.get(self.config.model_type, None) is not None:
@@ -470,7 +471,7 @@ class PeftModelForSequenceClassification(PeftModel):
                 "output_attentions": output_attentions,
                 "output_hidden_states": output_hidden_states,
                 "return_dict": return_dict,
-                "past_key_values": past_key_values,
+                "past_key_values": past_key_values,   # 这个参数中包含的就是prefix token的信息，它在输入BERT的时候有什么用？
             }
         )
         if "past_key_values" in fwd_params:
@@ -481,7 +482,7 @@ class PeftModelForSequenceClassification(PeftModel):
             if "past_key_values" not in fwd_params:
                 raise ValueError("Model does not support past key values which are required for prefix tuning.")
             outputs = transformer_backbone_name(**kwargs)
-            pooled_output = outputs[1] if len(outputs) > 1 else outputs[0]
+            pooled_output = outputs[1] if len(outputs) > 1 else outputs[0]   # 这里的pooled_output就可以作为sentence embedding哇！改造一下就行
             if "dropout" in [name for name, _ in list(self.base_model.named_children())]:
                 pooled_output = self.base_model.dropout(pooled_output)
             logits = self.base_model.get_submodule(self.cls_layer_name)(pooled_output)
